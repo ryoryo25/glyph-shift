@@ -1,0 +1,6 @@
+{
+  "name": "GlyphShift — 英数字ランダム変換・類似文字ジェネレーター",
+  "description": "入力された英数字列に対して、そのまま維持・大文字小文字変換・類似形状文字（Leet/ホモグリフ）への変換をランダムに適用し、ワンクリックでクリップボードにコピーできるローカル完結型ツール。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
