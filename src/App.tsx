@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   DEFAULT_SIMILAR_RULES,
   TRANSFORM_PRESETS,
@@ -11,7 +11,6 @@ import {
   TransformWeights,
   TransformResult,
   CharacterStep,
-  transformString,
   generateBatchCandidates,
   canChangeCase,
   swapCase,
@@ -23,19 +22,10 @@ import { RuleDictionary } from './components/RuleDictionary';
 import {
   Copy,
   Check,
-  RefreshCw,
-  Trash2,
   Sliders,
   ShieldCheck,
+  ChevronDown,
 } from 'lucide-react';
-
-interface HistoryEntry {
-  id: string;
-  input: string;
-  output: string;
-  timestamp: string;
-  statsSummary: string;
-}
 
 const SAMPLE_INPUTS = [
   { label: 'SolarisOliS2026', value: 'SolarisOliS2026' },
@@ -44,17 +34,18 @@ const SAMPLE_INPUTS = [
   { label: 'TokyoStation2026', value: 'TokyoStation2026' },
 ];
 
-const STORAGE_KEY_RULES = 'glyphshift_rules_v2';
-const STORAGE_KEY_HISTORY = 'glyphshift_history_v1';
+const STORAGE_KEY_RULES = 'glyphshift_rules_v3';
+const DEFAULT_WEIGHTS: TransformWeights = {
+  none: 30,
+  case: 30,
+  similar: 40,
+};
 
 export default function App() {
   const [inputText, setInputText] = useState<string>('SolarisOliS2026');
   const [activePresetId, setActivePresetId] = useState<string>('balanced');
-  const [weights, setWeights] = useState<TransformWeights>({
-    none: 35,
-    case: 35,
-    similar: 30,
-  });
+  const [weights, setWeights] = useState<TransformWeights>(DEFAULT_WEIGHTS);
+  const [candidateCount, setCandidateCount] = useState<number>(5);
 
   const [rules, setRules] = useState<SimilarRule[]>(() => {
     try {
@@ -69,28 +60,17 @@ export default function App() {
     return DEFAULT_SIMILAR_RULES;
   });
 
-  const [currentResult, setCurrentResult] = useState<TransformResult>(() =>
-    transformString('SolarisOliS2026', { none: 35, case: 35, similar: 30 }, DEFAULT_SIMILAR_RULES)
+  const [candidates, setCandidates] = useState<TransformResult[]>(() =>
+    generateBatchCandidates('SolarisOliS2026', 5, DEFAULT_WEIGHTS, DEFAULT_SIMILAR_RULES)
   );
+  const [selectedIndex, setSelectedIndex] = useState<number>(0);
 
-  const [batchCandidates, setBatchCandidates] = useState<TransformResult[]>(() =>
-    generateBatchCandidates('SolarisOliS2026', 6, { none: 35, case: 35, similar: 30 }, DEFAULT_SIMILAR_RULES)
-  );
-
-  const [history, setHistory] = useState<HistoryEntry[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_HISTORY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
-      }
-    } catch {
-      // ignore
-    }
-    return [];
-  });
+  // Accordions (both hidden by default per specification)
+  const [isInspectorOpen, setIsInspectorOpen] = useState<boolean>(false);
+  const [isDictionaryOpen, setIsDictionaryOpen] = useState<boolean>(false);
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const inspectorSectionRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     try {
@@ -100,43 +80,34 @@ export default function App() {
     }
   }, [rules]);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(history));
-    } catch {
-      // ignore storage errors
-    }
-  }, [history]);
-
   const runConversion = useCallback(
-    (text: string, w: TransformWeights, r: SimilarRule[]) => {
+    (text: string, count: number, w: TransformWeights, r: SimilarRule[]) => {
       if (!text) {
-        setCurrentResult({
-          id: 'empty',
-          input: '',
-          output: '',
-          steps: [],
-          stats: { totalChars: 0, noneCount: 0, caseCount: 0, similarCount: 0 },
-          timestamp: Date.now(),
-        });
-        setBatchCandidates([]);
+        setCandidates([]);
+        setSelectedIndex(0);
         return;
       }
-      const nextMain = transformString(text, w, r);
-      const nextBatch = generateBatchCandidates(text, 6, w, r);
-      setCurrentResult(nextMain);
-      setBatchCandidates(nextBatch);
+      const clampedCount = Math.max(1, Math.min(10, count));
+      const nextBatch = generateBatchCandidates(text, clampedCount, w, r);
+      setCandidates(nextBatch);
+      setSelectedIndex((prev) => (prev < nextBatch.length ? prev : 0));
     },
     []
   );
 
   const handleInputChange = (newText: string) => {
     setInputText(newText);
-    runConversion(newText, weights, rules);
+    runConversion(newText, candidateCount, weights, rules);
   };
 
-  const handleRegenerateAll = () => {
-    runConversion(inputText, weights, rules);
+  const handleCountChange = (newCount: number) => {
+    const safeCount = Math.max(1, Math.min(10, Math.floor(newCount) || 1));
+    setCandidateCount(safeCount);
+    runConversion(inputText, safeCount, weights, rules);
+  };
+
+  const handleRegenerateBatch = () => {
+    runConversion(inputText, candidateCount, weights, rules);
   };
 
   const handlePresetSelect = (presetId: string) => {
@@ -145,12 +116,11 @@ export default function App() {
     setActivePresetId(presetId);
     const nextWeights = { ...preset.weights };
     setWeights(nextWeights);
-    runConversion(inputText, nextWeights, rules);
+    runConversion(inputText, candidateCount, nextWeights, rules);
   };
 
   const handleWeightChange = (key: keyof TransformWeights, val: number) => {
     const nextWeights = { ...weights, [key]: val };
-    // Ensure at least one weight is positive
     if (
       nextWeights.none === 0 &&
       nextWeights.case === 0 &&
@@ -160,19 +130,32 @@ export default function App() {
     }
     setActivePresetId('custom');
     setWeights(nextWeights);
-    runConversion(inputText, nextWeights, rules);
+    runConversion(inputText, candidateCount, nextWeights, rules);
+  };
+
+  const handleInspectCandidate = (index: number) => {
+    setSelectedIndex(index);
+    setIsInspectorOpen(true);
+    setTimeout(() => {
+      inspectorSectionRef.current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    }, 50);
   };
 
   const handleCycleCharacter = (charIndex: number) => {
-    setCurrentResult((prev) => {
-      const targetStep = prev.steps[charIndex];
-      if (!targetStep) return prev;
+    setCandidates((prevList) => {
+      const targetItem = prevList[selectedIndex];
+      if (!targetItem) return prevList;
+
+      const targetStep = targetItem.steps[charIndex];
+      if (!targetStep) return prevList;
 
       const orig = targetStep.original;
       const canFlipCase = canChangeCase(orig);
       const similarList = getSimilarTargets(orig, rules);
 
-      // Determine next action in cycle: none -> case -> similar -> none
       const order: ('none' | 'case' | 'similar')[] = ['none'];
       if (canFlipCase) order.push('case');
       if (similarList.length > 0) order.push('similar');
@@ -208,7 +191,7 @@ export default function App() {
         };
       }
 
-      const nextSteps = prev.steps.map((s, idx) =>
+      const nextSteps = targetItem.steps.map((s, idx) =>
         idx === charIndex ? nextStep : s
       );
       const nextOutput = nextSteps.map((s) => s.transformed).join('');
@@ -222,8 +205,8 @@ export default function App() {
         else if (s.action === 'similar') similarCount++;
       }
 
-      return {
-        ...prev,
+      const updatedItem: TransformResult = {
+        ...targetItem,
         output: nextOutput,
         steps: nextSteps,
         stats: {
@@ -233,6 +216,10 @@ export default function App() {
           similarCount,
         },
       };
+
+      return prevList.map((item, idx) =>
+        idx === selectedIndex ? updatedItem : item
+      );
     });
   };
 
@@ -259,28 +246,6 @@ export default function App() {
     setTimeout(() => {
       setCopiedId((prev) => (prev === sourceId ? null : prev));
     }, 2000);
-
-    // Record in history
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString('ja-JP', {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    });
-
-    setHistory((prev) => {
-      const filtered = prev.filter((item) => item.output !== textToCopy);
-      return [
-        {
-          id: `hist-${Date.now()}`,
-          input: inputText,
-          output: textToCopy,
-          timestamp: timeStr,
-          statsSummary: `${textToCopy.length}文字`,
-        },
-        ...filtered,
-      ].slice(0, 15);
-    });
   };
 
   const handleToggleRule = (id: string) => {
@@ -288,13 +253,13 @@ export default function App() {
       r.id === id ? { ...r, enabled: !r.enabled } : r
     );
     setRules(nextRules);
-    runConversion(inputText, weights, nextRules);
+    runConversion(inputText, candidateCount, weights, nextRules);
   };
 
   const handleEnableAllRules = (enabled: boolean) => {
     const nextRules = rules.map((r) => ({ ...r, enabled }));
     setRules(nextRules);
-    runConversion(inputText, weights, nextRules);
+    runConversion(inputText, candidateCount, weights, nextRules);
   };
 
   const handleAddRule = (
@@ -312,18 +277,18 @@ export default function App() {
     };
     const nextRules = [newRule, ...rules];
     setRules(nextRules);
-    runConversion(inputText, weights, nextRules);
+    runConversion(inputText, candidateCount, weights, nextRules);
   };
 
   const handleDeleteRule = (id: string) => {
     const nextRules = rules.filter((r) => r.id !== id);
     setRules(nextRules);
-    runConversion(inputText, weights, nextRules);
+    runConversion(inputText, candidateCount, weights, nextRules);
   };
 
   const handleResetRules = () => {
     setRules(DEFAULT_SIMILAR_RULES);
-    runConversion(inputText, weights, DEFAULT_SIMILAR_RULES);
+    runConversion(inputText, candidateCount, weights, DEFAULT_SIMILAR_RULES);
   };
 
   const totalWeight = weights.none + weights.case + weights.similar || 1;
@@ -331,475 +296,377 @@ export default function App() {
   const pctCase = Math.round((weights.case / totalWeight) * 100);
   const pctSimilar = Math.max(0, 100 - pctNone - pctCase);
 
-  const isMainCopied = copiedId === 'main-output';
+  const selectedCandidate = candidates[selectedIndex] || null;
+  const isInspectorCopied =
+    selectedCandidate && copiedId === `inspect-${selectedCandidate.id}`;
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
-      {/* 3-Zone Top Bar Contract */}
+      {/* Header without top-right regenerate button */}
       <header className="flex items-center justify-between gap-8 px-6 py-4 bg-white border-b border-slate-200 sticky top-0 z-20">
         <a
-          href="#workspace"
+          href="#input-section"
           className="text-lg font-bold tracking-tight text-slate-900 whitespace-nowrap shrink-0"
         >
           GlyphShift
         </a>
 
         <nav
-          aria-label="メインナビゲーション"
+          aria-label="セクション移動"
           className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-600"
         >
           <a
-            href="#workspace"
+            href="#input-section"
             className="hover:text-slate-900 transition-colors whitespace-nowrap shrink-0"
           >
-            変換ワークスペース
+            文字列入力
           </a>
           <a
-            href="#breakdown"
+            href="#config-section"
             className="hover:text-slate-900 transition-colors whitespace-nowrap shrink-0"
           >
-            文字別内訳
+            モード・割合設定
           </a>
           <a
-            href="#candidates"
+            href="#results"
             className="hover:text-slate-900 transition-colors whitespace-nowrap shrink-0"
           >
-            一括候補比較
+            変換結果リスト
+          </a>
+          <a
+            href="#inspector"
+            className="hover:text-slate-900 transition-colors whitespace-nowrap shrink-0"
+          >
+            インスペクタ
           </a>
           <a
             href="#dictionary"
             className="hover:text-slate-900 transition-colors whitespace-nowrap shrink-0"
           >
-            類似文字辞書
-          </a>
-          <a
-            href="#history"
-            className="hover:text-slate-900 transition-colors whitespace-nowrap shrink-0"
-          >
-            コピー履歴
+            変換ルール一覧
           </a>
         </nav>
 
-        <div className="flex items-center gap-3 shrink-0">
-          <button
-            type="button"
-            onClick={handleRegenerateAll}
-            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-slate-900 rounded-lg hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            ランダム再変換
-          </button>
+        <div className="inline-flex items-center gap-1.5 text-xs text-slate-600 whitespace-nowrap shrink-0">
+          <ShieldCheck className="w-4 h-4 text-emerald-700" />
+          <span>ローカル完結処理</span>
         </div>
       </header>
 
-      {/* Main Content Container */}
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-8 space-y-8">
-        {/* Intro Header */}
-        <section className="space-y-2">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">
-              英数字ランダム変換・類似文字ジェネレーター
-            </h1>
-            <div className="inline-flex items-center gap-1.5 text-xs text-slate-600">
-              <ShieldCheck className="w-4 h-4 text-emerald-700" />
-              <span>ブラウザ内ローカル完結処理（外部通信なし）</span>
-            </div>
-          </div>
-          <p className="text-sm text-slate-600 max-w-3xl leading-relaxed">
-            入力した英数字列の1文字ずつに対して「何もしない」「大文字・小文字変換」「似ている形の文字に変換（O→0, l→1, S→5, i→! など）」をランダムに適用し、変換結果を即座に表示・クリップボードへコピーできます。
+      {/* Main Single-Column Vertical Stack */}
+      <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 py-8 space-y-6">
+        {/* Title & Summary */}
+        <section className="space-y-1.5">
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">
+            英数字ランダム変換・類似文字ジェネレーター
+          </h1>
+          <p className="text-sm text-slate-600 leading-relaxed">
+            入力した英数字列に対して「そのまま維持」「大文字・小文字変換」「似ている形の文字に変換（O→0, l→1, S→5, i→!, 2→z/Z などのASCII文字）」をランダムに適用し、一覧表示・コピーします。
           </p>
         </section>
 
-        {/* Primary Two-Column Workspace */}
+        {/* 1. 変換元文字列入力欄 */}
         <section
-          id="workspace"
-          className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch"
+          id="input-section"
+          className="bg-white border border-slate-200 rounded-xl p-6 space-y-4"
         >
-          {/* Left Column: Input + Probability Settings */}
-          <div className="lg:col-span-6 bg-white border border-slate-200 rounded-xl p-6 flex flex-col justify-between space-y-6">
-            <div className="space-y-4">
-              <div className="flex items-center justify-between gap-2">
-                <label
-                  htmlFor="source-string-input"
-                  className="text-sm font-bold text-slate-900"
-                >
-                  1. 変換元の英数字列を入力
-                </label>
-                <div className="flex items-center gap-2 text-xs text-slate-500 font-mono">
-                  <span>{inputText.length} 文字</span>
-                  {inputText && (
-                    <>
-                      <span aria-hidden="true">·</span>
-                      <button
-                        type="button"
-                        onClick={() => handleInputChange('')}
-                        className="text-slate-600 hover:text-slate-900 underline cursor-pointer"
-                      >
-                        クリア
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              <textarea
-                id="source-string-input"
-                rows={3}
-                value={inputText}
-                onChange={(e) => handleInputChange(e.target.value)}
-                placeholder="変換したい英数字を入力してください (例: SolarisOliS2026)"
-                className="w-full px-4 py-3 text-lg font-mono bg-slate-50 border border-slate-300 rounded-lg text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 transition-colors resize-y"
-              />
-
-              {/* Quick Sample Presets */}
-              <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                <span className="text-slate-500 mr-1">サンプル入力:</span>
-                {SAMPLE_INPUTS.map((sample) => (
-                  <button
-                    key={sample.value}
-                    type="button"
-                    onClick={() => handleInputChange(sample.value)}
-                    className={`px-2.5 py-1 font-mono rounded-md border transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
-                      inputText === sample.value
-                        ? 'bg-slate-900 text-white border-slate-900'
-                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    {sample.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Mode Presets & Probability Sliders */}
-            <div className="pt-5 border-t border-slate-200 space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5 text-sm font-bold text-slate-900">
-                  <Sliders className="w-4 h-4 text-slate-700" />
-                  <span>2. 変換モード・出現比率の設定</span>
-                </div>
-                <span className="text-xs font-mono text-slate-500">
-                  維持 {pctNone}% / 大小 {pctCase}% / 類似 {pctSimilar}%
-                </span>
-              </div>
-
-              {/* Segmented Preset Buttons */}
-              <div
-                className="flex flex-wrap gap-1.5 p-1 bg-slate-100 rounded-lg"
-                role="group"
-                aria-label="変換モードプリセット"
-              >
-                {TRANSFORM_PRESETS.map((preset) => (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    onClick={() => handlePresetSelect(preset.id)}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                      activePresetId === preset.id
-                        ? 'bg-white text-slate-900 shadow-xs font-semibold'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    {preset.name}
-                  </button>
-                ))}
-              </div>
-
-              {/* 3 Weight Sliders */}
-              <div className="space-y-3 pt-1">
-                <div>
-                  <div className="flex justify-between text-xs mb-1">
-                    <label
-                      htmlFor="weight-none"
-                      className="font-medium text-slate-700"
-                    >
-                      何もしない（原形維持）
-                    </label>
-                    <span className="font-mono text-slate-600">
-                      重み: {weights.none} ({pctNone}%)
-                    </span>
-                  </div>
-                  <input
-                    id="weight-none"
-                    type="range"
-                    min={0}
-                    max={100}
-                    step={5}
-                    value={weights.none}
-                    onChange={(e) =>
-                      handleWeightChange('none', Number(e.target.value))
-                    }
-                    className="w-full accent-slate-900 cursor-pointer"
-                  />
-                </div>
-
-                <div>
-                  <div className="flex justify-between text-xs mb-1">
-                    <label
-                      htmlFor="weight-case"
-                      className="font-medium text-sky-800"
-                    >
-                      大文字・小文字変換 (A ↔ a)
-                    </label>
-                    <span className="font-mono text-sky-800">
-                      重み: {weights.case} ({pctCase}%)
-                    </span>
-                  </div>
-                  <input
-                    id="weight-case"
-                    type="range"
-                    min={0}
-                    max={100}
-                    step={5}
-                    value={weights.case}
-                    onChange={(e) =>
-                      handleWeightChange('case', Number(e.target.value))
-                    }
-                    className="w-full accent-sky-700 cursor-pointer"
-                  />
-                </div>
-
-                <div>
-                  <div className="flex justify-between text-xs mb-1">
-                    <label
-                      htmlFor="weight-similar"
-                      className="font-medium text-amber-800"
-                    >
-                      似ている形の文字に変換 (O→0, l→1, S→5, i→! など)
-                    </label>
-                    <span className="font-mono text-amber-800">
-                      重み: {weights.similar} ({pctSimilar}%)
-                    </span>
-                  </div>
-                  <input
-                    id="weight-similar"
-                    type="range"
-                    min={0}
-                    max={100}
-                    step={5}
-                    value={weights.similar}
-                    onChange={(e) =>
-                      handleWeightChange('similar', Number(e.target.value))
-                    }
-                    className="w-full accent-amber-600 cursor-pointer"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Right Column: Primary Output & Copy Action */}
-          <div className="lg:col-span-6 bg-white border border-slate-200 rounded-xl p-6 flex flex-col justify-between space-y-6">
-            <div className="space-y-4">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-sm font-bold text-slate-900">
-                  3. 変換結果（メイン出力）
-                </span>
-                <div className="flex items-center gap-2 text-xs text-slate-500 font-mono">
-                  <span>そのまま: {currentResult.stats.noneCount}</span>
+          <div className="flex items-center justify-between gap-2">
+            <label
+              htmlFor="source-string-input"
+              className="text-base font-bold text-slate-900"
+            >
+              1. 変換元文字列の入力
+            </label>
+            <div className="flex items-center gap-2 text-xs text-slate-500 font-mono">
+              <span>{inputText.length} 文字</span>
+              {inputText && (
+                <>
                   <span aria-hidden="true">·</span>
-                  <span>大小変換: {currentResult.stats.caseCount}</span>
-                  <span aria-hidden="true">·</span>
-                  <span>類似文字: {currentResult.stats.similarCount}</span>
-                </div>
-              </div>
-
-              {/* Output Box */}
-              <div
-                data-testid="primary-output-box"
-                className="min-h-[120px] p-5 rounded-lg bg-slate-900 text-white flex flex-col justify-center break-all select-all"
-              >
-                {currentResult.output ? (
-                  <p
-                    data-testid="primary-output-text"
-                    className="font-mono text-2xl sm:text-3xl font-bold tracking-wide leading-snug"
+                  <button
+                    type="button"
+                    onClick={() => handleInputChange('')}
+                    className="text-slate-600 hover:text-slate-900 underline cursor-pointer"
                   >
-                    {currentResult.output}
-                  </p>
-                ) : (
-                  <p className="text-sm text-slate-400">
-                    左側の入力欄に英数字を入力すると、変換された文字列がここに表示されます。
-                  </p>
-                )}
-              </div>
-
-              {/* Action Buttons: Copy & Re-roll */}
-              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-1">
-                <button
-                  type="button"
-                  disabled={!currentResult.output}
-                  onClick={() =>
-                    handleCopy(currentResult.output, 'main-output')
-                  }
-                  className={`sm:col-span-8 inline-flex items-center justify-center gap-2 px-5 py-3 text-sm font-bold rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
-                    isMainCopied
-                      ? 'bg-emerald-700 text-white'
-                      : 'bg-slate-900 text-white hover:bg-slate-800'
-                  }`}
-                >
-                  {isMainCopied ? (
-                    <>
-                      <Check className="w-4 h-4" />
-                      クリップボードにコピーしました
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-4 h-4" />
-                      変換結果をコピーする
-                    </>
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  disabled={!inputText}
-                  onClick={handleRegenerateAll}
-                  className="sm:col-span-4 inline-flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold text-slate-800 bg-slate-100 border border-slate-200 rounded-lg hover:bg-slate-200 transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-40"
-                >
-                  <RefreshCw className="w-4 h-4" />
-                  再変換
-                </button>
-              </div>
-            </div>
-
-            {/* Applied Rules Summary List */}
-            <div className="pt-5 border-t border-slate-200 space-y-2.5">
-              <div className="text-xs font-semibold text-slate-700">
-                今回の変換で適用されたルール内訳
-              </div>
-              {currentResult.steps.filter((s) => s.action !== 'none').length ===
-              0 ? (
-                <p className="text-xs text-slate-500">
-                  変更された文字はありません（すべて原形維持）。「再変換」を押すか比率スライダーを調整してください。
-                </p>
-              ) : (
-                <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs font-mono text-slate-700 max-h-28 overflow-y-auto">
-                  {currentResult.steps
-                    .filter((s) => s.action !== 'none')
-                    .map((s) => (
-                      <span
-                        key={s.index}
-                        className="inline-flex items-center gap-1"
-                      >
-                        <span className="text-slate-400">#{s.index + 1}</span>
-                        <span
-                          className={
-                            s.action === 'similar'
-                              ? 'text-amber-800 font-semibold'
-                              : 'text-sky-800 font-semibold'
-                          }
-                        >
-                          {s.ruleApplied}
-                        </span>
-                      </span>
-                    ))}
-                </div>
+                    クリア
+                  </button>
+                </>
               )}
             </div>
           </div>
-        </section>
 
-        {/* Per-Character Interactive Breakdown */}
-        <section
-          id="breakdown"
-          className="bg-white border border-slate-200 rounded-xl p-6 space-y-4"
-        >
-          <div className="border-b border-slate-200 pb-3">
-            <h2 className="text-lg font-bold text-slate-900">
-              1文字ごとの変換インスペクター（個別クリックで微調整）
-            </h2>
-          </div>
-          <CharacterBreakdown
-            steps={currentResult.steps}
-            onCycleChar={handleCycleCharacter}
+          <textarea
+            id="source-string-input"
+            rows={2}
+            value={inputText}
+            onChange={(e) => handleInputChange(e.target.value)}
+            placeholder="変換したい英数字を入力してください (例: SolarisOliS2026)"
+            className="w-full px-4 py-3 text-lg font-mono bg-slate-50 border border-slate-300 rounded-lg text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 transition-colors resize-y"
           />
+
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="text-slate-500 mr-1">サンプル入力:</span>
+            {SAMPLE_INPUTS.map((sample) => (
+              <button
+                key={sample.value}
+                type="button"
+                onClick={() => handleInputChange(sample.value)}
+                className={`px-2.5 py-1 font-mono rounded-md border transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                  inputText === sample.value
+                    ? 'bg-slate-900 text-white border-slate-900'
+                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                {sample.label}
+              </button>
+            ))}
+          </div>
         </section>
 
-        {/* Multi-Candidate Batch Generator */}
-        <BatchCandidates
-          candidates={batchCandidates}
-          copiedId={copiedId}
-          onCopy={handleCopy}
-          onSelectCandidate={(cand) => setCurrentResult(cand)}
-          onRegenerateBatch={() =>
-            setBatchCandidates(
-              generateBatchCandidates(inputText, 6, weights, rules)
-            )
-          }
-        />
-
-        {/* Customizable Similar Character Rule Dictionary */}
-        <RuleDictionary
-          rules={rules}
-          onToggleRule={handleToggleRule}
-          onAddRule={handleAddRule}
-          onDeleteRule={handleDeleteRule}
-          onResetRules={handleResetRules}
-          onEnableAll={handleEnableAllRules}
-        />
-
-        {/* Copy History Section */}
+        {/* 2. 変換モード・割合指定・変換リスト生成数指定 (デフォルト5、max10) */}
         <section
-          id="history"
-          className="bg-white border border-slate-200 rounded-xl p-6 space-y-4"
+          id="config-section"
+          className="bg-white border border-slate-200 rounded-xl p-6 space-y-6"
         >
-          <div className="flex items-center justify-between gap-4 border-b border-slate-200 pb-3">
-            <div>
-              <h2 className="text-lg font-bold text-slate-900">
-                コピー履歴（ローカル保存）
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-4">
+            <div className="flex items-center gap-2">
+              <Sliders className="w-4 h-4 text-slate-700" />
+              <h2 className="text-base font-bold text-slate-900">
+                2. 変換モード・割合指定・変換リスト生成数指定
               </h2>
+            </div>
+            <span className="text-xs font-mono text-slate-500">
+              そのまま {pctNone}% / 大小 {pctCase}% / Leet {pctSimilar}% · 生成数 {candidateCount}件
+            </span>
+          </div>
+
+          {/* Mode Presets */}
+          <div className="space-y-2">
+            <div className="text-xs font-semibold text-slate-700">
+              変換モードプリセット
+            </div>
+            <div
+              className="flex flex-wrap gap-1.5 p-1 bg-slate-100 rounded-lg"
+              role="group"
+              aria-label="変換モードプリセット"
+            >
+              {TRANSFORM_PRESETS.map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  onClick={() => handlePresetSelect(preset.id)}
+                  className={`px-3.5 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                    activePresetId === preset.id
+                      ? 'bg-white text-slate-900 shadow-xs font-semibold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {preset.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 3 Weight Sliders */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200/80 space-y-2">
+              <div className="flex justify-between text-xs">
+                <label
+                  htmlFor="weight-none"
+                  className="font-semibold text-slate-700"
+                >
+                  そのまま（何もしない）
+                </label>
+                <span className="font-mono text-slate-600">
+                  {weights.none} ({pctNone}%)
+                </span>
+              </div>
+              <input
+                id="weight-none"
+                type="range"
+                min={0}
+                max={100}
+                step={5}
+                value={weights.none}
+                onChange={(e) =>
+                  handleWeightChange('none', Number(e.target.value))
+                }
+                className="w-full accent-slate-900 cursor-pointer"
+              />
+            </div>
+
+            <div className="p-3.5 rounded-lg bg-sky-50/50 border border-sky-200/80 space-y-2">
+              <div className="flex justify-between text-xs">
+                <label
+                  htmlFor="weight-case"
+                  className="font-semibold text-sky-900"
+                >
+                  大文字・小文字変換
+                </label>
+                <span className="font-mono text-sky-800">
+                  {weights.case} ({pctCase}%)
+                </span>
+              </div>
+              <input
+                id="weight-case"
+                type="range"
+                min={0}
+                max={100}
+                step={5}
+                value={weights.case}
+                onChange={(e) =>
+                  handleWeightChange('case', Number(e.target.value))
+                }
+                className="w-full accent-sky-700 cursor-pointer"
+              />
+            </div>
+
+            <div className="p-3.5 rounded-lg bg-amber-50/50 border border-amber-200/80 space-y-2">
+              <div className="flex justify-between text-xs">
+                <label
+                  htmlFor="weight-similar"
+                  className="font-semibold text-amber-900"
+                >
+                  Leet（似ている文字に変換）
+                </label>
+                <span className="font-mono text-amber-800">
+                  {weights.similar} ({pctSimilar}%)
+                </span>
+              </div>
+              <input
+                id="weight-similar"
+                type="range"
+                min={0}
+                max={100}
+                step={5}
+                value={weights.similar}
+                onChange={(e) =>
+                  handleWeightChange('similar', Number(e.target.value))
+                }
+                className="w-full accent-amber-600 cursor-pointer"
+              />
+            </div>
+          </div>
+
+          {/* Candidate List Count Control (Default 5, Max 10) */}
+          <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <label
+                htmlFor="candidate-count-slider"
+                className="text-xs font-semibold text-slate-800 block"
+              >
+                変換リスト生成数の指定（デフォルト: 5 / 最大: 10）
+              </label>
               <p className="text-xs text-slate-500 mt-0.5">
-                コピーした変換結果はブラウザ内に自動記録され、いつでも再コピーできます。
+                一度に生成して並べるランダム変換候補の件数を1〜10件の間で指定します。
               </p>
             </div>
-            {history.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setHistory([])}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-red-600 border border-slate-200 rounded-lg hover:bg-red-50 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                履歴をクリア
-              </button>
-            )}
-          </div>
 
-          {history.length === 0 ? (
-            <div className="py-8 text-center text-sm text-slate-500">
-              まだコピーされた文字列はありません。メイン出力または候補一覧のコピーボタンを押すとここに履歴が残ります。
+            <div className="flex items-center gap-3 shrink-0">
+              <input
+                id="candidate-count-slider"
+                type="range"
+                min={1}
+                max={10}
+                step={1}
+                value={candidateCount}
+                onChange={(e) => handleCountChange(Number(e.target.value))}
+                className="w-36 accent-slate-900 cursor-pointer"
+              />
+              <div className="flex items-center gap-1 font-mono">
+                <input
+                  type="number"
+                  aria-label="変換リスト生成数"
+                  min={1}
+                  max={10}
+                  value={candidateCount}
+                  onChange={(e) => handleCountChange(Number(e.target.value))}
+                  className="w-16 px-2.5 py-1.5 text-sm font-bold text-center bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900"
+                />
+                <span className="text-xs text-slate-600">件</span>
+              </div>
             </div>
-          ) : (
-            <div className="divide-y divide-slate-200 border border-slate-200 rounded-lg overflow-hidden">
-              {history.map((item) => {
-                const isCopied = copiedId === item.id;
-                return (
-                  <div
-                    key={item.id}
-                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-4 py-3 bg-white hover:bg-slate-50 transition-colors"
-                  >
+          </div>
+        </section>
+
+        {/* 3. 変換結果リスト */}
+        <BatchCandidates
+          candidates={candidates}
+          selectedIndex={selectedIndex}
+          copiedId={copiedId}
+          onCopy={handleCopy}
+          onInspectCandidate={handleInspectCandidate}
+          onRegenerateBatch={handleRegenerateBatch}
+        />
+
+        {/* 4. 変換ルール・インスペクタ (アコーディオンで初期状態では隠す) */}
+        <section
+          id="inspector"
+          ref={inspectorSectionRef}
+          className="scroll-mt-20 bg-white border border-slate-200 rounded-xl overflow-hidden"
+        >
+          <button
+            type="button"
+            onClick={() => setIsInspectorOpen((prev) => !prev)}
+            aria-expanded={isInspectorOpen}
+            aria-controls="inspector-panel-content"
+            className="w-full flex items-center justify-between gap-4 px-6 py-4 text-left bg-white hover:bg-slate-50/80 transition-colors cursor-pointer"
+          >
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <h2 className="text-base font-bold text-slate-900">
+                  4. 変換ルール・インスペクタ（1文字ごとの内訳・微調整）
+                </h2>
+                {selectedCandidate && (
+                  <span className="text-xs font-mono text-slate-500 truncate max-w-xs">
+                    選択中: #{String(selectedIndex + 1).padStart(2, '0')} ({selectedCandidate.output})
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                各文字に適用された変換ルールの内訳確認と、1文字単位でのクリック個別変換を行えます。
+              </p>
+            </div>
+
+            <ChevronDown
+              className={`w-5 h-5 text-slate-500 shrink-0 transition-transform duration-150 ${
+                isInspectorOpen ? 'rotate-180' : ''
+              }`}
+            />
+          </button>
+
+          {isInspectorOpen && (
+            <div
+              id="inspector-panel-content"
+              className="px-6 pb-6 pt-4 border-t border-slate-200 space-y-5"
+            >
+              {selectedCandidate ? (
+                <>
+                  {/* Selected item bar */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-lg bg-slate-900 text-white">
                     <div className="min-w-0 flex-1">
-                      <div className="font-mono text-sm font-bold text-slate-900 break-all">
-                        {item.output}
+                      <div className="text-xs font-mono text-slate-400">
+                        候補 #{String(selectedIndex + 1).padStart(2, '0')} の微調整プレビュー
                       </div>
-                      <div className="flex items-center gap-2 text-xs text-slate-500 font-mono mt-0.5">
-                        <span>元: {item.input}</span>
-                        <span aria-hidden="true">·</span>
-                        <span>{item.statsSummary}</span>
-                        <span aria-hidden="true">·</span>
-                        <span>{item.timestamp}</span>
+                      <div className="font-mono text-xl sm:text-2xl font-bold tracking-wide break-all mt-0.5">
+                        {selectedCandidate.output}
                       </div>
                     </div>
 
                     <button
                       type="button"
-                      onClick={() => handleCopy(item.output, item.id)}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                        isCopied
-                          ? 'bg-emerald-700 text-white'
-                          : 'bg-slate-100 text-slate-800 hover:bg-slate-200'
+                      onClick={() =>
+                        handleCopy(
+                          selectedCandidate.output,
+                          `inspect-${selectedCandidate.id}`
+                        )
+                      }
+                      className={`inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                        isInspectorCopied
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-white text-slate-900 hover:bg-slate-100'
                       }`}
                     >
-                      {isCopied ? (
+                      {isInspectorCopied ? (
                         <>
                           <Check className="w-3.5 h-3.5" />
                           コピー完了
@@ -807,16 +674,75 @@ export default function App() {
                       ) : (
                         <>
                           <Copy className="w-3.5 h-3.5" />
-                          再コピー
+                          この文字列をコピー
                         </>
                       )}
                     </button>
                   </div>
-                );
-              })}
+
+                  {/* Per-Character Interactive Breakdown */}
+                  <CharacterBreakdown
+                    steps={selectedCandidate.steps}
+                    onCycleChar={handleCycleCharacter}
+                  />
+
+                  {/* Applied Rules Breakdown */}
+                  <div className="pt-4 border-t border-slate-200 space-y-2">
+                    <div className="text-xs font-semibold text-slate-700">
+                      適用された変換ルール一覧
+                    </div>
+                    {selectedCandidate.steps.filter((s) => s.action !== 'none')
+                      .length === 0 ? (
+                      <p className="text-xs text-slate-500">
+                        変更された文字はありません（すべて原形維持）。
+                      </p>
+                    ) : (
+                      <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs font-mono text-slate-700">
+                        {selectedCandidate.steps
+                          .filter((s) => s.action !== 'none')
+                          .map((s) => (
+                            <span
+                              key={s.index}
+                              className="inline-flex items-center gap-1"
+                            >
+                              <span className="text-slate-400">
+                                #{s.index + 1}
+                              </span>
+                              <span
+                                className={
+                                  s.action === 'similar'
+                                    ? 'text-amber-800 font-semibold'
+                                    : 'text-sky-800 font-semibold'
+                                }
+                              >
+                                {s.ruleApplied}
+                              </span>
+                            </span>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="py-6 text-center text-sm text-slate-500">
+                  変換元の文字列を入力すると、インスペクタが利用可能になります。
+                </div>
+              )}
             </div>
           )}
         </section>
+
+        {/* 5. 変換ルール一覧 (アコーディオン) */}
+        <RuleDictionary
+          rules={rules}
+          isOpen={isDictionaryOpen}
+          onToggleOpen={() => setIsDictionaryOpen((prev) => !prev)}
+          onToggleRule={handleToggleRule}
+          onAddRule={handleAddRule}
+          onDeleteRule={handleDeleteRule}
+          onResetRules={handleResetRules}
+          onEnableAll={handleEnableAllRules}
+        />
       </main>
 
       {/* Quiet Footer */}

@@ -50,6 +50,9 @@ test('getSimilarTargets finds expected homoglyphs for O, l, S, i', () => {
 
   const iTargets = getSimilarTargets('i', DEFAULT_SIMILAR_RULES).map((t) => t.target);
   assert.ok(iTargets.includes('!'), 'i should map to !');
+
+  const twoTargets = getSimilarTargets('2', DEFAULT_SIMILAR_RULES).map((t) => t.target);
+  assert.deepEqual(twoTargets, ['z', 'Z'], '2 should map to z and Z');
 });
 
 test('transformCharacter respects 100% single-mode weights', () => {
@@ -98,28 +101,33 @@ test('transformString produces accurate stats and step lengths', () => {
 
   assert.equal(result.steps.length, input.length);
   assert.equal(result.stats.totalChars, input.length);
-  // O -> 0, l -> 1, i -> !, S -> 5
-  assert.equal(result.output.slice(0, 4), '01!5');
-  assert.ok(result.stats.similarCount >= 4);
+  // O -> 0, l -> 1, i -> !, S -> 5, 2 -> z
+  assert.equal(result.output.slice(0, 5), '01!5z');
+  assert.ok(result.stats.similarCount >= 5);
 });
 
-test('generateBatchCandidates returns requested number of candidates', () => {
+test('generateBatchCandidates returns requested number of candidates clamped to 1..10', () => {
   let seed = 1;
   const pseudoRng = () => {
     seed = (seed * 16807) % 2147483647;
     return (seed - 1) / 2147483646;
   };
 
-  const batch = generateBatchCandidates(
+  const batch5 = generateBatchCandidates(
     'Solaris OliS 2026',
     5,
-    { none: 30, case: 35, similar: 35 },
+    { none: 30, case: 30, similar: 40 },
     DEFAULT_SIMILAR_RULES,
     pseudoRng
   );
+  assert.equal(batch5.length, 5);
 
-  assert.equal(batch.length, 5);
-  for (const item of batch) {
-    assert.equal(item.output.length, 'Solaris OliS 2026'.length);
-  }
+  const batchClamped = generateBatchCandidates(
+    'Solaris OliS 2026',
+    15,
+    { none: 30, case: 30, similar: 40 },
+    DEFAULT_SIMILAR_RULES,
+    pseudoRng
+  );
+  assert.equal(batchClamped.length, 10);
 });

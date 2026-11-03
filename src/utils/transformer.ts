@@ -151,6 +151,14 @@ export const DEFAULT_SIMILAR_RULES: SimilarRule[] = [
     caseSensitive: true,
   },
   {
+    id: 'rule-2-z',
+    source: '2',
+    targets: ['z', 'Z'],
+    description: '2 → z, Z (数字の2をゼットに)',
+    enabled: true,
+    caseSensitive: true,
+  },
+  {
     id: 'rule-5-S',
     source: '5',
     targets: ['S', 's', '$'],
@@ -179,12 +187,12 @@ export const TRANSFORM_PRESETS: PresetConfig[] = [
   {
     id: 'balanced',
     name: 'バランス',
-    description: '維持・大小変換・類似文字を均等にミックス',
-    weights: { none: 35, case: 35, similar: 30 },
+    description: 'そのまま30%・大小30%・Leet40%の標準バランス',
+    weights: { none: 30, case: 30, similar: 40 },
   },
   {
     id: 'leet-heavy',
-    name: '類似文字強め',
+    name: 'Leet強め',
     description: 'O→0, l→1, S→5, i→! などの類似形状変換を優先',
     weights: { none: 15, case: 20, similar: 65 },
   },
@@ -196,14 +204,14 @@ export const TRANSFORM_PRESETS: PresetConfig[] = [
   },
   {
     id: 'similar-only',
-    name: '類似文字のみ',
+    name: 'Leetのみ',
     description: '大文字小文字は維持し、似ている文字への変換のみ適用',
     weights: { none: 40, case: 0, similar: 60 },
   },
   {
     id: 'max-chaos',
     name: 'フル変換',
-    description: '変換可能なすべての文字に対して大小変換または類似文字変換を実行',
+    description: '変換可能なすべての文字に対して大小変換またはLeet変換を実行',
     weights: { none: 0, case: 45, similar: 55 },
   },
 ];
@@ -394,19 +402,20 @@ export function generateBatchCandidates(
   rules: SimilarRule[],
   rng: () => number = Math.random
 ): TransformResult[] {
+  const safeCount = Math.max(1, Math.min(10, Math.floor(count) || 5));
   const results: TransformResult[] = [];
   const seen = new Set<string>();
   let attempts = 0;
-  const maxAttempts = count * 6;
+  const maxAttempts = safeCount * 6;
 
-  while (results.length < count && attempts < maxAttempts) {
+  while (results.length < safeCount && attempts < maxAttempts) {
     attempts++;
     const res = transformString(input, weights, rules, rng);
-    if (!seen.has(res.output) || attempts >= count * 3) {
+    if (!seen.has(res.output) || attempts >= safeCount * 3) {
       seen.add(res.output);
       results.push({
         ...res,
-        id: `batch-${ results.length }-${ Math.floor(rng() * 1000000) }`,
+        id: `batch-${results.length}-${Math.floor(rng() * 1000000)}`,
       });
     }
   }
