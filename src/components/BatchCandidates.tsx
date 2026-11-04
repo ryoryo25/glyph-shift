@@ -35,7 +35,7 @@ export const BatchCandidates: React.FC<BatchCandidatesProps> = ({
             </span>
           </div>
           <p className="text-xs text-slate-600 mt-1">
-            生成された文字列をワンクリックでコピーできます。「微調整」を押すと下のインスペクタで1文字ずつ変換を切り替えられます。
+            生成された文字列をワンクリックでコピーできます。「微調整」を押すとモーダルが開き、1文字ずつ変換を切り替えられます。
           </p>
         </div>
 

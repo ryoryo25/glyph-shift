@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+  <rect width="128" height="128" rx="28" fill="#0F172A" />
+  <rect x="6" y="6" width="116" height="116" rx="22" stroke="#334155" stroke-width="2" />
+  <!-- 'G' in white -->
+  <path d="M40 44C31.1634 44 24 51.1634 24 60V68C24 76.8366 31.1634 84 40 84H48C54.6274 84 60 78.6274 60 72V62H42V70H51V72C51 73.6569 49.6569 75 48 75H40C36.134 75 33 71.866 33 68V60C33 56.134 36.134 53 40 53H56V44H40Z" fill="#F8FAFC" />
+  <!-- Arrow / Shift spark in sky blue -->
+  <path d="M65 56L73 64L65 72" stroke="#38BDF8" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
+  <!-- '5' (Leet S->5) in amber -->
+  <path d="M80 44H104V53H88V59H96C101.523 59 106 63.4772 106 69V74C106 79.5228 101.523 84 96 84H80V75H95C96.1046 75 97 74.1046 97 73V70C97 68.8954 96.1046 68 95 68H80V44Z" fill="#F59E0B" />
+</svg>

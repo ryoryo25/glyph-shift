@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   DEFAULT_SIMILAR_RULES,
   TRANSFORM_PRESETS,
@@ -24,7 +24,8 @@ import {
   Check,
   Sliders,
   ShieldCheck,
-  ChevronDown,
+  X,
+  ExternalLink,
 } from 'lucide-react';
 
 const SAMPLE_INPUTS = [
@@ -40,6 +41,18 @@ const DEFAULT_WEIGHTS: TransformWeights = {
   case: 30,
   similar: 40,
 };
+
+function getGitHubRepoUrl(): string {
+  if (typeof window !== 'undefined') {
+    const { hostname, pathname } = window.location;
+    if (hostname.endsWith('.github.io')) {
+      const owner = hostname.replace(/\.github\.io$/, '');
+      const repo = pathname.split('/').filter(Boolean)[0] || 'glyph-shift';
+      return `https://github.com/${owner}/${repo}`;
+    }
+  }
+  return 'https://github.com/ryoryo25/glyph-shift';
+}
 
 export default function App() {
   const [inputText, setInputText] = useState<string>('SolarisOliS2026');
@@ -65,12 +78,11 @@ export default function App() {
   );
   const [selectedIndex, setSelectedIndex] = useState<number>(0);
 
-  // Accordions (both hidden by default per specification)
-  const [isInspectorOpen, setIsInspectorOpen] = useState<boolean>(false);
+  // Modal state for Inspector & Accordion state for Dictionary
+  const [isInspectorModalOpen, setIsInspectorModalOpen] = useState<boolean>(false);
   const [isDictionaryOpen, setIsDictionaryOpen] = useState<boolean>(false);
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const inspectorSectionRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     try {
@@ -79,6 +91,18 @@ export default function App() {
       // ignore storage errors
     }
   }, [rules]);
+
+  // Close modal on Escape key
+  useEffect(() => {
+    if (!isInspectorModalOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsInspectorModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isInspectorModalOpen]);
 
   const runConversion = useCallback(
     (text: string, count: number, w: TransformWeights, r: SimilarRule[]) => {
@@ -135,13 +159,7 @@ export default function App() {
 
   const handleInspectCandidate = (index: number) => {
     setSelectedIndex(index);
-    setIsInspectorOpen(true);
-    setTimeout(() => {
-      inspectorSectionRef.current?.scrollIntoView({
-        behavior: 'smooth',
-        block: 'start',
-      });
-    }, 50);
+    setIsInspectorModalOpen(true);
   };
 
   const handleCycleCharacter = (charIndex: number) => {
@@ -299,53 +317,15 @@ export default function App() {
   const selectedCandidate = candidates[selectedIndex] || null;
   const isInspectorCopied =
     selectedCandidate && copiedId === `inspect-${selectedCandidate.id}`;
+  const githubRepoUrl = getGitHubRepoUrl();
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
-      {/* Header without top-right regenerate button */}
-      <header className="flex items-center justify-between gap-8 px-6 py-4 bg-white border-b border-slate-200 sticky top-0 z-20">
-        <a
-          href="#input-section"
-          className="text-lg font-bold tracking-tight text-slate-900 whitespace-nowrap shrink-0"
-        >
+      {/* Minimal Header without table-of-contents links */}
+      <header className="flex items-center justify-between gap-4 px-6 py-3.5 bg-white border-b border-slate-200">
+        <span className="text-lg font-bold tracking-tight text-slate-900 whitespace-nowrap shrink-0">
           GlyphShift
-        </a>
-
-        <nav
-          aria-label="セクション移動"
-          className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-600"
-        >
-          <a
-            href="#input-section"
-            className="hover:text-slate-900 transition-colors whitespace-nowrap shrink-0"
-          >
-            文字列入力
-          </a>
-          <a
-            href="#config-section"
-            className="hover:text-slate-900 transition-colors whitespace-nowrap shrink-0"
-          >
-            モード・割合設定
-          </a>
-          <a
-            href="#results"
-            className="hover:text-slate-900 transition-colors whitespace-nowrap shrink-0"
-          >
-            変換結果リスト
-          </a>
-          <a
-            href="#inspector"
-            className="hover:text-slate-900 transition-colors whitespace-nowrap shrink-0"
-          >
-            インスペクタ
-          </a>
-          <a
-            href="#dictionary"
-            className="hover:text-slate-900 transition-colors whitespace-nowrap shrink-0"
-          >
-            変換ルール一覧
-          </a>
-        </nav>
+        </span>
 
         <div className="inline-flex items-center gap-1.5 text-xs text-slate-600 whitespace-nowrap shrink-0">
           <ShieldCheck className="w-4 h-4 text-emerald-700" />
@@ -422,7 +402,7 @@ export default function App() {
           </div>
         </section>
 
-        {/* 2. 変換モード・割合指定・変換リスト生成数指定 (デフォルト5、max10) */}
+        {/* 2. 変換モード・割合指定・変換リスト生成数指定 + 変換ルール一覧アコーディオン */}
         <section
           id="config-section"
           className="bg-white border border-slate-200 rounded-xl p-6 space-y-6"
@@ -586,6 +566,20 @@ export default function App() {
               </div>
             </div>
           </div>
+
+          {/* Integrated Rule Dictionary Accordion */}
+          <div className="pt-2">
+            <RuleDictionary
+              rules={rules}
+              isOpen={isDictionaryOpen}
+              onToggleOpen={() => setIsDictionaryOpen((prev) => !prev)}
+              onToggleRule={handleToggleRule}
+              onAddRule={handleAddRule}
+              onDeleteRule={handleDeleteRule}
+              onResetRules={handleResetRules}
+              onEnableAll={handleEnableAllRules}
+            />
+          </div>
         </section>
 
         {/* 3. 変換結果リスト */}
@@ -597,157 +591,164 @@ export default function App() {
           onInspectCandidate={handleInspectCandidate}
           onRegenerateBatch={handleRegenerateBatch}
         />
+      </main>
 
-        {/* 4. 変換ルール・インスペクタ (アコーディオンで初期状態では隠す) */}
-        <section
-          id="inspector"
-          ref={inspectorSectionRef}
-          className="scroll-mt-20 bg-white border border-slate-200 rounded-xl overflow-hidden"
+      {/* Inspector Modal (opens when clicking 微調整 on a result item) */}
+      {isInspectorModalOpen && selectedCandidate && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs"
+          onClick={() => setIsInspectorModalOpen(false)}
         >
-          <button
-            type="button"
-            onClick={() => setIsInspectorOpen((prev) => !prev)}
-            aria-expanded={isInspectorOpen}
-            aria-controls="inspector-panel-content"
-            className="w-full flex items-center justify-between gap-4 px-6 py-4 text-left bg-white hover:bg-slate-50/80 transition-colors cursor-pointer"
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="inspector-modal-title"
+            className="w-full max-w-3xl max-h-[90vh] overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-xl p-6 space-y-6"
+            onClick={(e) => e.stopPropagation()}
           >
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2.5">
-                <h2 className="text-base font-bold text-slate-900">
-                  4. 変換ルール・インスペクタ（1文字ごとの内訳・微調整）
+            {/* Modal Header */}
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 pb-4">
+              <div>
+                <h2
+                  id="inspector-modal-title"
+                  className="text-lg font-bold text-slate-900"
+                >
+                  変換ルール・インスペクタ（候補 #{String(selectedIndex + 1).padStart(2, '0')} の微調整）
                 </h2>
-                {selectedCandidate && (
-                  <span className="text-xs font-mono text-slate-500 truncate max-w-xs">
-                    選択中: #{String(selectedIndex + 1).padStart(2, '0')} ({selectedCandidate.output})
-                  </span>
-                )}
+                <p className="text-xs text-slate-500 mt-1">
+                  各文字セルをクリックすると、その1文字だけ変換パターン（そのまま → 大小変換 → 類似文字）を切り替えられます。変更は変換結果リストにも即座に反映されます。
+                </p>
               </div>
-              <p className="text-xs text-slate-500 mt-0.5">
-                各文字に適用された変換ルールの内訳確認と、1文字単位でのクリック個別変換を行えます。
-              </p>
+
+              <button
+                type="button"
+                onClick={() => setIsInspectorModalOpen(false)}
+                aria-label="モーダルを閉じる"
+                className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer shrink-0"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
-            <ChevronDown
-              className={`w-5 h-5 text-slate-500 shrink-0 transition-transform duration-150 ${
-                isInspectorOpen ? 'rotate-180' : ''
-              }`}
+            {/* Selected Candidate Preview & Copy Bar */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-lg bg-slate-900 text-white">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 text-xs font-mono text-slate-400">
+                  <span>現在の文字列</span>
+                  <span aria-hidden="true">·</span>
+                  <span>そのまま {selectedCandidate.stats.noneCount}</span>
+                  <span aria-hidden="true">·</span>
+                  <span>大小 {selectedCandidate.stats.caseCount}</span>
+                  <span aria-hidden="true">·</span>
+                  <span>Leet {selectedCandidate.stats.similarCount}</span>
+                </div>
+                <div
+                  data-testid="modal-preview-output"
+                  className="font-mono text-2xl sm:text-3xl font-bold tracking-wide break-all mt-1 select-all"
+                >
+                  {selectedCandidate.output}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  handleCopy(
+                    selectedCandidate.output,
+                    `inspect-${selectedCandidate.id}`
+                  )
+                }
+                className={`inline-flex items-center justify-center gap-1.5 px-4 py-2.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                  isInspectorCopied
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-white text-slate-900 hover:bg-slate-100'
+                }`}
+              >
+                {isInspectorCopied ? (
+                  <>
+                    <Check className="w-4 h-4" />
+                    コピー完了
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-4 h-4" />
+                    この文字列をコピー
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Per-Character Interactive Breakdown */}
+            <CharacterBreakdown
+              steps={selectedCandidate.steps}
+              onCycleChar={handleCycleCharacter}
             />
-          </button>
 
-          {isInspectorOpen && (
-            <div
-              id="inspector-panel-content"
-              className="px-6 pb-6 pt-4 border-t border-slate-200 space-y-5"
-            >
-              {selectedCandidate ? (
-                <>
-                  {/* Selected item bar */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-lg bg-slate-900 text-white">
-                    <div className="min-w-0 flex-1">
-                      <div className="text-xs font-mono text-slate-400">
-                        候補 #{String(selectedIndex + 1).padStart(2, '0')} の微調整プレビュー
-                      </div>
-                      <div className="font-mono text-xl sm:text-2xl font-bold tracking-wide break-all mt-0.5">
-                        {selectedCandidate.output}
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        handleCopy(
-                          selectedCandidate.output,
-                          `inspect-${selectedCandidate.id}`
-                        )
-                      }
-                      className={`inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                        isInspectorCopied
-                          ? 'bg-emerald-600 text-white'
-                          : 'bg-white text-slate-900 hover:bg-slate-100'
-                      }`}
-                    >
-                      {isInspectorCopied ? (
-                        <>
-                          <Check className="w-3.5 h-3.5" />
-                          コピー完了
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-3.5 h-3.5" />
-                          この文字列をコピー
-                        </>
-                      )}
-                    </button>
-                  </div>
-
-                  {/* Per-Character Interactive Breakdown */}
-                  <CharacterBreakdown
-                    steps={selectedCandidate.steps}
-                    onCycleChar={handleCycleCharacter}
-                  />
-
-                  {/* Applied Rules Breakdown */}
-                  <div className="pt-4 border-t border-slate-200 space-y-2">
-                    <div className="text-xs font-semibold text-slate-700">
-                      適用された変換ルール一覧
-                    </div>
-                    {selectedCandidate.steps.filter((s) => s.action !== 'none')
-                      .length === 0 ? (
-                      <p className="text-xs text-slate-500">
-                        変更された文字はありません（すべて原形維持）。
-                      </p>
-                    ) : (
-                      <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs font-mono text-slate-700">
-                        {selectedCandidate.steps
-                          .filter((s) => s.action !== 'none')
-                          .map((s) => (
-                            <span
-                              key={s.index}
-                              className="inline-flex items-center gap-1"
-                            >
-                              <span className="text-slate-400">
-                                #{s.index + 1}
-                              </span>
-                              <span
-                                className={
-                                  s.action === 'similar'
-                                    ? 'text-amber-800 font-semibold'
-                                    : 'text-sky-800 font-semibold'
-                                }
-                              >
-                                {s.ruleApplied}
-                              </span>
-                            </span>
-                          ))}
-                      </div>
-                    )}
-                  </div>
-                </>
+            {/* Applied Rules Breakdown */}
+            <div className="pt-4 border-t border-slate-200 space-y-2">
+              <div className="text-xs font-semibold text-slate-700">
+                適用された変換ルール一覧
+              </div>
+              {selectedCandidate.steps.filter((s) => s.action !== 'none')
+                .length === 0 ? (
+                <p className="text-xs text-slate-500">
+                  変更された文字はありません（すべて原形維持）。
+                </p>
               ) : (
-                <div className="py-6 text-center text-sm text-slate-500">
-                  変換元の文字列を入力すると、インスペクタが利用可能になります。
+                <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs font-mono text-slate-700">
+                  {selectedCandidate.steps
+                    .filter((s) => s.action !== 'none')
+                    .map((s) => (
+                      <span
+                        key={s.index}
+                        className="inline-flex items-center gap-1"
+                      >
+                        <span className="text-slate-400">#{s.index + 1}</span>
+                        <span
+                          className={
+                            s.action === 'similar'
+                              ? 'text-amber-800 font-semibold'
+                              : 'text-sky-800 font-semibold'
+                          }
+                        >
+                          {s.ruleApplied}
+                        </span>
+                      </span>
+                    ))}
                 </div>
               )}
             </div>
-          )}
-        </section>
 
-        {/* 5. 変換ルール一覧 (アコーディオン) */}
-        <RuleDictionary
-          rules={rules}
-          isOpen={isDictionaryOpen}
-          onToggleOpen={() => setIsDictionaryOpen((prev) => !prev)}
-          onToggleRule={handleToggleRule}
-          onAddRule={handleAddRule}
-          onDeleteRule={handleDeleteRule}
-          onResetRules={handleResetRules}
-          onEnableAll={handleEnableAllRules}
-        />
-      </main>
+            {/* Modal Footer */}
+            <div className="pt-4 border-t border-slate-200 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsInspectorModalOpen(false)}
+                className="px-5 py-2 text-xs font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+              >
+                完了して閉じる
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
-      {/* Quiet Footer */}
-      <footer className="border-t border-slate-200 bg-white py-6 px-6 text-center text-xs text-slate-500">
-        GlyphShift — ローカル完結型 英数字ランダム変換・類似文字ジェネレーター
+      {/* Footer with GitHub Repository Link */}
+      <footer className="border-t border-slate-200 bg-white py-6 px-6">
+        <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
+          <span>
+            GlyphShift — ローカル完結型 英数字ランダム変換・類似文字ジェネレーター
+          </span>
+          <a
+            href={githubRepoUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 font-medium text-slate-600 hover:text-slate-900 transition-colors"
+          >
+            <span>GitHub リポジトリ</span>
+            <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+        </div>
       </footer>
     </div>
   );

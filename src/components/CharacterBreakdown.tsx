@@ -26,10 +26,10 @@ export const CharacterBreakdown: React.FC<CharacterBreakdownProps> = ({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
-        <span>
-          各文字セルをクリックすると、その1文字だけ変換パターン（維持 → 大小変換 → 類似文字）を切り替えられます。
+        <span className="font-semibold text-slate-700">
+          1文字ごとの変換セル（クリックで切り替え）
         </span>
         <div className="flex items-center gap-4 font-medium">
           <span className="inline-flex items-center gap-1.5 text-slate-600">
