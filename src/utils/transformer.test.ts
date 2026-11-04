@@ -53,6 +53,21 @@ test('getSimilarTargets finds expected homoglyphs for O, l, S, i', () => {
 
   const twoTargets = getSimilarTargets('2', DEFAULT_SIMILAR_RULES).map((t) => t.target);
   assert.deepEqual(twoTargets, ['z', 'Z'], '2 should map to z and Z');
+
+  const cTargets = getSimilarTargets('C', DEFAULT_SIMILAR_RULES).map((t) => t.target);
+  assert.ok(cTargets.includes('(') && cTargets.includes('<'), 'C should map to ( and <');
+
+  const hTargets = getSimilarTargets('H', DEFAULT_SIMILAR_RULES).map((t) => t.target);
+  assert.ok(hTargets.includes('#'), 'H should map to #');
+
+  const xTargets = getSimilarTargets('X', DEFAULT_SIMILAR_RULES).map((t) => t.target);
+  assert.ok(xTargets.includes('%') && xTargets.includes('*'), 'X should map to % and *');
+
+  const threeTargets = getSimilarTargets('3', DEFAULT_SIMILAR_RULES).map((t) => t.target);
+  assert.deepEqual(threeTargets, ['E', 'e'], '3 should map to E and e');
+
+  const sevenTargets = getSimilarTargets('7', DEFAULT_SIMILAR_RULES).map((t) => t.target);
+  assert.ok(sevenTargets.includes('T') && sevenTargets.includes('Z'), '7 should map to T and Z');
 });
 
 test('transformCharacter respects 100% single-mode weights', () => {

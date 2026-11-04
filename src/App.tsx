@@ -34,7 +34,7 @@ const SAMPLE_INPUTS = [
   { label: 'TokyoStation2026', value: 'TokyoStation2026' },
 ];
 
-const STORAGE_KEY_RULES = 'glyphshift_rules_v3';
+const STORAGE_KEY_RULES = 'glyphshift_rules_v4';
 const DEFAULT_WEIGHTS: TransformWeights = {
   none: 30,
   case: 30,
